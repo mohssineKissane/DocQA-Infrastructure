@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # PostgreSQL Database - Shared by all microservices
   postgres:
@@ -25,9 +23,10 @@ services:
 
   # RabbitMQ Message Queue
   rabbitmq:
-    image: rabbitmq:3.12-management-alpine
+    image: rabbitmq:3.12-management
     container_name: docqa-rabbitmq
     restart: unless-stopped
+    hostname: rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
@@ -35,14 +34,12 @@ services:
     ports:
       - "${RABBITMQ_PORT}:5672"
       - "${RABBITMQ_MANAGEMENT_PORT}:15672"
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
     networks:
       - docqa-network
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 30s
+      timeout: 10s
       retries: 5
 
   # MinIO Object Storage (S3-compatible)
@@ -66,6 +63,20 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # Adminer - Database Management UI
+  adminer:
+    image: adminer:latest
+    container_name: docqa-adminer
+    restart: unless-stopped
+    ports:
+      - "${ADMINER_PORT}:8080"
+    networks:
+      - docqa-network
+    depends_on:
+      - postgres
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
 
   # DocIngestor Service
   docingestor:
