@@ -64,6 +64,22 @@ services:
       timeout: 5s
       retries: 5
 
+  # Apache Tika Server for document text extraction
+  tika:
+    image: apache/tika:latest
+    container_name: docqa-tika
+    restart: unless-stopped
+    ports:
+      - "${TIKA_PORT}:9998"
+    networks:
+      - docqa-network
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/9998' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
   # Adminer - Database Management UI
   adminer:
     image: adminer:latest
@@ -103,6 +119,8 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
       MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
       MINIO_BUCKET: documents
+      # Tika Server
+      TIKA_SERVER_URL: http://tika:9998
       # Service Config
       SERVICE_PORT: 8001
       LOG_LEVEL: ${LOG_LEVEL}
@@ -118,6 +136,8 @@ services:
       rabbitmq:
         condition: service_healthy
       minio:
+        condition: service_healthy
+      tika:
         condition: service_healthy
 
   # DeID Service
