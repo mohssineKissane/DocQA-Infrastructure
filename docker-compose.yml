@@ -1,0 +1,240 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database - Shared by all microservices
+  postgres:
+    image: postgres:15-alpine
+    container_name: docqa-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: postgres
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    networks:
+      - docqa-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # RabbitMQ Message Queue
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: docqa-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST}
+    ports:
+      - "${RABBITMQ_PORT}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT}:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - docqa-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # MinIO Object Storage (S3-compatible)
+  minio:
+    image: minio/minio:latest
+    container_name: docqa-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "${MINIO_PORT}:9000"
+      - "${MINIO_CONSOLE_PORT}:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - docqa-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # DocIngestor Service
+  docingestor:
+    build:
+      context: ../DocIngestor
+      dockerfile: Dockerfile
+    container_name: docqa-docingestor
+    restart: unless-stopped
+    environment:
+      # Database
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: docingestor_db
+      # RabbitMQ
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST}
+      # MinIO
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: documents
+      # Service Config
+      SERVICE_PORT: 8001
+      LOG_LEVEL: ${LOG_LEVEL}
+    ports:
+      - "${DOCINGESTOR_PORT}:8001"
+    volumes:
+      - ./logs/docingestor:/app/logs
+    networks:
+      - docqa-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  # DeID Service
+  deid:
+    build:
+      context: ../DeID
+      dockerfile: Dockerfile
+    container_name: docqa-deid
+    restart: unless-stopped
+    environment:
+      # Database
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: deid_db
+      # RabbitMQ
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST}
+      # Service Config
+      SERVICE_PORT: 8002
+      LOG_LEVEL: ${LOG_LEVEL}
+    ports:
+      - "${DEID_PORT}:8002"
+    volumes:
+      - ./logs/deid:/app/logs
+    networks:
+      - docqa-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # SemanticIndexer Service
+  semantic-indexer:
+    build:
+      context: ../SemanticIndexer
+      dockerfile: Dockerfile
+    container_name: docqa-semantic-indexer
+    restart: unless-stopped
+    environment:
+      # Database
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: semantic_indexer_db
+      # RabbitMQ
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST}
+      # Service Config
+      SERVICE_PORT: 8003
+      FAISS_INDEX_PATH: /app/faiss_index
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL}
+      LOG_LEVEL: ${LOG_LEVEL}
+    ports:
+      - "${SEMANTIC_INDEXER_PORT}:8003"
+    volumes:
+      - faiss_index:/app/faiss_index
+      - ./logs/semantic-indexer:/app/logs
+    networks:
+      - docqa-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # LLMQAModule Service
+  llmqa:
+    build:
+      context: ../LLMQAModule
+      dockerfile: Dockerfile
+    container_name: docqa-llmqa
+    restart: unless-stopped
+    environment:
+      # Database
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: llmqa_db
+      # SemanticIndexer
+      SEMANTIC_INDEXER_URL: http://semantic-indexer:8003
+      # Service Config
+      SERVICE_PORT: 8004
+      LLM_MODEL: ${LLM_MODEL}
+      LLM_MODEL_PATH: /app/models
+      TOP_K_RESULTS: ${TOP_K_RESULTS}
+      LOG_LEVEL: ${LOG_LEVEL}
+    ports:
+      - "${LLMQA_PORT}:8004"
+    volumes:
+      - llm_models:/app/models
+      - ./logs/llmqa:/app/logs
+    networks:
+      - docqa-network
+    depends_on:
+      - postgres
+      - semantic-indexer
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+networks:
+  docqa-network:
+    driver: bridge
+    name: docqa-network
+
+volumes:
+  postgres_data:
+    name: docqa-postgres-data
+  rabbitmq_data:
+    name: docqa-rabbitmq-data
+  minio_data:
+    name: docqa-minio-data
+  faiss_index:
+    name: docqa-faiss-index
+  llm_models:
+    name: docqa-llm-models
