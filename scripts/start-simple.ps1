@@ -1,6 +1,4 @@
-# ===========================================
 # DocQA-MS Start Script (PowerShell)
-# ===========================================
 # Starts all services using docker-compose
 
 Write-Host "================================================" -ForegroundColor Cyan
@@ -12,9 +10,9 @@ Write-Host ""
 Write-Host "[1/4] Checking Docker..." -ForegroundColor Yellow
 try {
     docker info | Out-Null
-    Write-Host "  ✓ Docker is running" -ForegroundColor Green
+    Write-Host "  [OK] Docker is running" -ForegroundColor Green
 } catch {
-    Write-Host "  ✗ Docker is not running. Please start Docker Desktop first." -ForegroundColor Red
+    Write-Host "  [ERROR] Docker is not running. Please start Docker Desktop first." -ForegroundColor Red
     exit 1
 }
 
@@ -25,12 +23,12 @@ Set-Location (Split-Path -Parent $scriptPath)
 # Check if .env file exists
 Write-Host "[2/4] Checking configuration..." -ForegroundColor Yellow
 if (-not (Test-Path ".env")) {
-    Write-Host "  ✗ .env file not found. Copying from .env.example..." -ForegroundColor Yellow
+    Write-Host "  [ERROR] .env file not found. Copying from .env.example..." -ForegroundColor Yellow
     Copy-Item ".env.example" ".env"
-    Write-Host "  ⚠ Please edit .env file with your configuration!" -ForegroundColor Red
+    Write-Host "  [WARNING] Please edit .env file with your configuration!" -ForegroundColor Red
     exit 1
 }
-Write-Host "  ✓ Configuration found" -ForegroundColor Green
+Write-Host "  [OK] Configuration found" -ForegroundColor Green
 
 # Pull latest images (optional, comment out if not needed)
 Write-Host "[3/4] Pulling Docker images..." -ForegroundColor Yellow
@@ -52,7 +50,7 @@ docker-compose ps
 
 Write-Host ""
 Write-Host "================================================" -ForegroundColor Green
-Write-Host "  ✓ DocQA-MS Services Started!" -ForegroundColor Green
+Write-Host "  [SUCCESS] DocQA-MS Services Started!" -ForegroundColor Green
 Write-Host "================================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "Services are available at:" -ForegroundColor Cyan
