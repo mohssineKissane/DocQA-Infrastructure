@@ -163,6 +163,8 @@ services:
       # Service Config
       SERVICE_PORT: 8002
       LOG_LEVEL: ${LOG_LEVEL}
+      # Force use of standard spaCy model (medical model not available in Docker)
+      SPACY_MODEL: en_core_web_sm
     ports:
       - "${DEID_PORT}:8002"
     volumes:
