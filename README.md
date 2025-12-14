@@ -6,10 +6,19 @@ Infrastructure repository for the DocQA Medical Document QA System. This reposit
 
 DocQA-MS is a microservices-based medical document processing and question-answering system consisting of:
 
+- **NGINX Gateway** - Unified API gateway with CORS support
 - **DocIngestor** - Document upload and text extraction
 - **DeID** - Patient information anonymization
 - **SemanticIndexer** - Vector embeddings and semantic search
-- **LLMQAModule** - Question answering with local LLM
+- **LLMQAModule** - Question answering with Groq LLM
+
+### Infrastructure Components
+
+- **PostgreSQL** - Shared database for all services
+- **RabbitMQ** - Message queue for async processing
+- **MinIO** - S3-compatible object storage
+- **Apache Tika** - Document text extraction
+- **Adminer** - Database management UI
 
 ## 📋 Prerequisites
 
@@ -21,94 +30,119 @@ DocQA-MS is a microservices-based medical document processing and question-answe
 
 ## 🚀 Quick Start
 
-### 1. Clone This Repository
+### 1. Clone All Repositories
+
+Create a parent directory and clone all repositories:
 
 ```bash
-git clone <infrastructure-repo-url> infrastructure
-cd infrastructure
+mkdir DocQA-MS
+cd DocQA-MS
+git clone <infrastructure-repo-url> DocQA-infrastructure
+git clone <docingestor-repo-url> DocQA-DocIngestor
+git clone <deid-repo-url> DocQA-DeID
+git clone <semantic-indexer-repo-url> DocQA-SemanticIndexer
+git clone <llmqa-repo-url> DocQA-LLMQAModule
 ```
 
-### 2. Run Setup Script
-
-**Windows (PowerShell):**
-```powershell
-.\scripts\setup.ps1
+Your structure should be:
+```
+DocQA-MS/
+├── DocQA-infrastructure/   (this repo)
+├── DocQA-DocIngestor/
+├── DocQA-DeID/
+├── DocQA-SemanticIndexer/
+└── DocQA-LLMQAModule/
 ```
 
-**Linux/Mac:**
+### 2. Configure Environment
+
+Create `.env` file from template:
+
 ```bash
-chmod +x scripts/setup.sh
-./scripts/setup.sh
+cd DocQA-infrastructure
+copy .env.example .env     # Windows
+cp .env.example .env       # Linux/Mac
 ```
 
-### 3. Configure Environment
-
-Edit the generated `.env` file:
+Edit the `.env` file and update:
+- **LLM_API_KEY**: Your Groq API key (required)
+- **POSTGRES_PASSWORD**: Strong password for database
+- **RABBITMQ_PASSWORD**: Strong password for message queue
+- **MINIO_ROOT_PASSWORD**: Strong password for object storage
 
 ```bash
 notepad .env  # Windows
 nano .env     # Linux/Mac
 ```
 
-Update passwords and credentials (never use defaults in production!).
+### 3. Start All Services
 
-### 4. Clone Microservices
-
-Clone each microservice repository in the parent directory:
+From the `DocQA-infrastructure` directory:
 
 ```bash
-cd ..
-git clone <docingestor-repo-url> DocIngestor
-git clone <deid-repo-url> DeID
-git clone <semantic-indexer-repo-url> SemanticIndexer
-git clone <llmqa-repo-url> LLMQAModule
-```
-
-Your structure should be:
-```
-DocQA-MS/
-├── infrastructure/     (this repo)
-├── DocIngestor/
-├── DeID/
-├── SemanticIndexer/
-└── LLMQAModule/
-```
-
-### 5. Start All Services
-
-```bash
-cd infrastructure
 docker-compose up -d
 ```
 
-Or use the start script:
-```bash
-.\scripts\start.ps1  # Windows
-./scripts/start.sh   # Linux/Mac
-```
+This single command will:
+- Build all microservice Docker images
+- Start PostgreSQL, RabbitMQ, MinIO, Tika, NGINX
+- Start all 4 microservices (DocIngestor, DeID, SemanticIndexer, LLMQAModule)
+- Initialize databases automatically
+- Configure networking between services
+
+**Note**: First-time startup takes 5-10 minutes to build images.
 
 ### 6. Access Services
 
-- **DocIngestor API**: http://localhost:8001/docs
-- **DeID API**: http://localhost:8002/docs
-- **SemanticIndexer API**: http://localhost:8003/docs
-- **LLMQAModule API**: http://localhost:8004/docs
-- **RabbitMQ Management**: http://localhost:15672
-- **MinIO Console**: http://localhost:9001
+#### Through NGINX Gateway (Recommended)
+
+All microservices are accessible through NGINX reverse proxy on port 80:
+
+- **Unified API Gateway**: http://localhost/
+- **DocIngestor API**: http://localhost/api/ingestor/
+- **DeID API**: http://localhost/api/deid/
+- **SemanticIndexer API**: http://localhost/api/indexer/
+- **LLM QA API**: http://localhost/api/qa/
+- **Health Check**: http://localhost/health
+
+#### Direct Service Access
+
+For development or debugging, access services directly:
+
+- **DocIngestor**: http://localhost:8001/docs
+- **DeID**: http://localhost:8002/docs
+- **SemanticIndexer**: http://localhost:8003/docs
+- **LLMQAModule**: http://localhost:8004/docs
+
+#### Management Interfaces
+
+- **RabbitMQ Management**: http://localhost:15672 (user: docqa_rabbit)
+- **MinIO Console**: http://localhost:9001 (user: docqa_minio)
+- **Adminer (Database)**: http://localhost:8080
+
+### 7. Verify Services
+
+Check all containers are running:
+
+```bash
+docker-compose ps
+```
+
+All services should show status "Up" or "healthy".
 
 ## 📁 Repository Structure
 
 ```
 infrastructure/
 ├── docker-compose.yml          # Main orchestration file
+├── nginx.conf                  # NGINX gateway configuration
 ├── .env.example                # Environment variables template
+├── .env                        # Environment variables (create from .env.example)
 ├── .gitignore                  # Git ignore patterns
 ├── README.md                   # This file
 ├── scripts/
-│   ├── setup.sh/.ps1          # Initial setup script
-│   ├── start.sh/.ps1          # Start all services
-│   ├── stop.sh/.ps1           # Stop all services
 │   └── init-db.sql            # Database initialization
+├── logs/                       # Service logs directory
 └── docs/
     ├── architecture.md        # System architecture
     ├── deployment.md          # Deployment guide
@@ -116,6 +150,31 @@ infrastructure/
 ```
 
 ## 🛠️ Common Operations
+
+### Using the API Gateway
+
+All API requests should go through NGINX at http://localhost:
+
+Upload a document:
+```bash
+curl -X POST http://localhost/api/ingestor/documents \
+  -F "file=@document.pdf" \
+  -F "metadata={\"category\":\"medical\"}"
+```
+
+Search documents:
+```bash
+curl -X POST http://localhost/api/indexer/search \
+  -H "Content-Type: application/json" \
+  -d '{"query":"diabetes treatment","top_k":5}'
+```
+
+Ask a question:
+```bash
+curl -X POST http://localhost/api/qa/query \
+  -H "Content-Type: application/json" \
+  -d '{"question":"What is the treatment for diabetes?"}'
+```
 
 ### View Logs
 
@@ -137,10 +196,14 @@ docker-compose restart docingestor
 
 ```bash
 docker-compose down
+```
 
-# Or use script
-.\scripts\stop.ps1  # Windows
-./scripts/stop.sh   # Linux/Mac
+To also remove all data (databases, files):
+
+**⚠️ WARNING: This deletes everything!**
+
+```bash
+docker-compose down -v
 ```
 
 ### Rebuild After Code Changes
@@ -172,21 +235,26 @@ Key variables in `.env`:
 | `MINIO_ROOT_USER` | MinIO access key | docqa_minio |
 | `MINIO_ROOT_PASSWORD` | MinIO secret key | change_this |
 | `EMBEDDING_MODEL` | Embedding model | all-MiniLM-L6-v2 |
-| `LLM_MODEL` | LLM model file | llama-2-7b-chat.gguf |
+| `LLM_API_KEY` | Groq API key | your_groq_key |
+| `LLM_API_MODEL` | Groq model | llama-3.3-70b-versatile |
+| `LLM_API_BASE_URL` | Groq API base URL | https://api.groq.com/openai/v1 |
 
 ### Service Ports
 
 | Service | Port | Description |
 |---------|------|-------------|
-| DocIngestor | 8001 | Document ingestion API |
-| DeID | 8002 | Anonymization API |
-| SemanticIndexer | 8003 | Vector search API |
-| LLMQAModule | 8004 | Q&A API |
+| NGINX Gateway | 80/443 | Unified API gateway (recommended) |
+| DocIngestor | 8001 | Document ingestion API (direct) |
+| DeID | 8002 | Anonymization API (direct) |
+| SemanticIndexer | 8003 | Vector search API (direct) |
+| LLMQAModule | 8004 | Q&A API (direct) |
 | PostgreSQL | 5432 | Database |
 | RabbitMQ | 5672 | Message queue |
 | RabbitMQ Mgmt | 15672 | Web UI |
 | MinIO | 9000 | Object storage |
 | MinIO Console | 9001 | Web UI |
+| Adminer | 8080 | Database admin UI |
+| Tika | 9998 | Document text extraction |
 
 ## 📚 Documentation
 
